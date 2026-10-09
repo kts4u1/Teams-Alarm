@@ -15,9 +15,11 @@ py radar_gradient_pressure.py 24020 24062
 
 import base64
 import json
+import os
 import sys
 import time
 from selenium import webdriver
+from selenium.webdriver import ActionChains
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.edge.service import Service
 from webdriver_manager.microsoft import EdgeChromiumDriverManager
@@ -26,6 +28,9 @@ PORTAL_URL = "https://portal.radar-digitalservices.hsp.philips.com/rmw/systemlis
 PLOTS_API = "fetchGeneratedPlots"
 LOGIN_WAIT_TIMEOUT = 180
 STEP_TIMEOUT = 40
+DEBUG_IMAGE = os.path.join(
+    os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "RadarExport", "debug.png"
+)
 
 GA_PLOT = "LCC_GradAmpFillingPress"
 GC_PLOT = "LCC_GradCoilFillingPress"
@@ -123,10 +128,35 @@ def click(driver, element):
         driver.execute_script("arguments[0].click()", element)
 
 
+def find_text(driver, text):
+    return driver.execute_script(FIND_BY_TEXT_JS, text)
+
+
 def click_text(driver, text, timeout=STEP_TIMEOUT):
-    element = wait_for(lambda: driver.execute_script(FIND_BY_TEXT_JS, text), timeout,
+    element = wait_for(lambda: find_text(driver, text), timeout,
                        f"화면에서 '{text}'를 찾지 못했습니다")
     click(driver, element)
+
+
+def open_cooling_menu(driver):
+    """Dashboards 메뉴를 열고 System Cooling Dashboard를 누릅니다. 열리지 않으면 방법을 바꿔 다시 시도합니다."""
+    button = wait_for(lambda: find_text(driver, "Dashboards"), STEP_TIMEOUT,
+                      "화면에서 'Dashboards'를 찾지 못했습니다")
+    methods = (
+        lambda: button.click(),
+        lambda: driver.execute_script("arguments[0].click()", button),
+        lambda: ActionChains(driver).move_to_element(button).pause(0.5).click().perform(),
+    )
+    for open_menu in methods:
+        try:
+            open_menu()
+            item = wait_for(lambda: find_text(driver, "System Cooling Dashboard"), 4, "메뉴")
+        except Exception:
+            continue
+        click(driver, item)
+        return
+    driver.save_screenshot(DEBUG_IMAGE)
+    raise RuntimeError(f"Dashboards 메뉴에서 System Cooling Dashboard를 열지 못했습니다. 화면 사진: {DEBUG_IMAGE}")
 
 
 def open_cooling_dashboard(driver, srn, first):
@@ -140,9 +170,8 @@ def open_cooling_dashboard(driver, srn, first):
         click_text(driver, str(srn), timeout=15)
     except RuntimeError:
         raise LookupError(f"RADAR 목록에 없는 시스템: {srn}")
-    click_text(driver, "Dashboards")
     driver.get_log("performance")  # 이전 기록 비우기
-    click_text(driver, "System Cooling Dashboard")
+    open_cooling_menu(driver)
 
 
 def capture_plots(driver, srn, timeout=60):
