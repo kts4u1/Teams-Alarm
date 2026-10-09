@@ -45,7 +45,8 @@ LOGIN_WAIT_TIMEOUT = 180
 PROFILE_DIR = os.path.join(
     os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "RadarExport", "edge-profile"
 )
-ONEDRIVE_DIR = os.path.join(os.path.expanduser("~"), "OneDrive - Philips")
+ONEDRIVE_DIRS = [d for d in {os.environ.get("OneDriveCommercial"), os.environ.get("OneDrive"),
+                                   *glob.glob(os.path.join(os.path.expanduser("~"), "OneDrive*"))} if d]
 
 OPEN_CHAT_JS = """
 function findByText(root, text) {
@@ -103,10 +104,15 @@ def normalize(name):
 def find_helium_xlsx():
     path = os.environ.get("HELIUM_XLSX")
     if path:
-        return path
-    candidates = glob.glob(os.path.join(ONEDRIVE_DIR, "01.*헬륨*.xlsx"))
+        return path.strip('"')
+    candidates = []
+    for root in ONEDRIVE_DIRS:
+        candidates += glob.glob(os.path.join(root, "**", "01.*헬륨*.xlsx"), recursive=True)
+    candidates = [c for c in candidates if not os.path.basename(c).startswith("~$")]
     if not candidates:
-        raise FileNotFoundError("헬륨 엑셀을 찾지 못했습니다. HELIUM_XLSX 환경변수로 경로를 지정하세요.")
+        raise FileNotFoundError(
+            "헬륨 엑셀을 찾지 못했습니다. PowerShell에서 아래처럼 경로를 지정하세요.\n"
+            '$env:HELIUM_XLSX = "C:\\전체\\경로\\파일.xlsx"')
     return max(candidates, key=os.path.getmtime)
 
 
