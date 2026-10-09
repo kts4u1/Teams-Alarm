@@ -1,0 +1,23 @@
+name: Build RadarExport.exe
+
+on:
+  push:
+    paths:
+      - radar_export_download.py
+      - .github/workflows/build-exe.yml
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pyinstaller selenium webdriver-manager
+      - run: pyinstaller --onefile --windowed --name RadarExport --collect-all selenium radar_export_download.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RadarExport
+          path: dist/RadarExport.exe
