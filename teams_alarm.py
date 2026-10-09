@@ -152,6 +152,8 @@ def build_message(results, missing, now=None):
     lines = [f"[GA/GC 압력] {now:%Y-%m-%d} PM 병원"]
     for hospital, systems in results.items():
         for srn, site, values in systems:
+            if values.get("skip"):  # RADAR 목록에 없는 시스템은 알리지 않음
+                continue
             if "error" in values:
                 lines.append(f"{site} (SRN {srn}) - 조회 실패: {values['error']}")
                 continue

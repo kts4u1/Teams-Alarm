@@ -133,7 +133,10 @@ def open_cooling_dashboard(driver, srn, first):
                    "시스템 목록 화면(로그인 필요)")
     box.clear()
     box.send_keys(str(srn) + Keys.ENTER)
-    click_text(driver, str(srn))
+    try:
+        click_text(driver, str(srn), timeout=15)
+    except RuntimeError:
+        raise LookupError(f"RADAR 목록에 없는 시스템: {srn}")
     click_text(driver, "Dashboards")
     driver.get_log("performance")  # 이전 기록 비우기
     click_text(driver, "System Cooling Dashboard")
@@ -178,6 +181,9 @@ def get_gradient_pressure(device_ids, driver=None):
             try:
                 open_cooling_dashboard(driver, srn, first=(i == 0))
                 results[srn] = parse_gradient_pressure(capture_plots(driver, srn))
+            except LookupError:
+                print(f"[{srn}] RADAR 목록에 없어 건너뜁니다.", flush=True)
+                results[srn] = {"skip": True}
             except Exception as e:
                 print(f"[{srn}] 조회 실패: {e}", flush=True)
                 results[srn] = {"error": str(e)}
