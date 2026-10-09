@@ -17,7 +17,8 @@ pip install selenium webdriver-manager
 ----------------------------------
 py -m PyInstaller --onefile --windowed --name RadarExport --collect-all selenium radar_export_download.py
 
-다운로드된 파일은 바탕화면의 RadarDownloads 폴더에 저장됩니다.
+다운로드된 파일은 숨김 폴더 %LOCALAPPDATA%\\RadarExport\\downloads 에 저장됩니다.
+(바탕화면이나 탐색기 기본 화면에 보이지 않습니다.)
 로그인이 오래 걸려서 시간 초과가 뜨면, 아래 LOGIN_WAIT_TIMEOUT 값을 늘려주세요.
 """
 
@@ -32,7 +33,8 @@ from webdriver_manager.microsoft import EdgeChromiumDriverManager
 LOGIN_URL = "https://portal.radar-digitalservices.hsp.philips.com/rmw/systemlist"
 EXPORT_BUTTON_TEXT = "Export"
 LOGIN_WAIT_TIMEOUT = 180  # 로그인 + 화면 로딩에 최대 기다려줄 시간(초)
-DOWNLOAD_DIR = os.path.join(os.path.expanduser("~"), "Desktop", "RadarDownloads")
+APP_DIR = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "RadarExport")
+DOWNLOAD_DIR = os.path.join(APP_DIR, "downloads")
 
 
 def show_message(text, title="RADAR 다운로드"):
@@ -42,8 +44,16 @@ def show_message(text, title="RADAR 다운로드"):
         pass  # Windows가 아닌 환경이면 조용히 넘어감
 
 
+def hide_folder(path):
+    try:
+        ctypes.windll.kernel32.SetFileAttributesW(path, 0x02)  # FILE_ATTRIBUTE_HIDDEN
+    except Exception:
+        pass  # Windows가 아닌 환경이면 조용히 넘어감
+
+
 def setup_driver():
     os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+    hide_folder(APP_DIR)
     options = webdriver.EdgeOptions()
     prefs = {
         "download.default_directory": DOWNLOAD_DIR,
