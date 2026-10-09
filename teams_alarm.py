@@ -8,18 +8,19 @@ Teams 나에게 메시지로 보내는 프로그램.
 2. 오늘 날짜 아래 '김태수 : 병원 PM' 줄에서 PM 병원 이름을 뽑는다.
 3. 헬륨 엑셀의 SRN/Site 표로 병원 이름 -> 시스템 번호(SRN)를 찾는다.
 4. RADAR에서 시스템별 GA/GC 최신 값을 가져온다 (처음 한 번만 로그인).
-5. Teams 웹훅(Workflows)으로 나에게 메시지를 보낸다.
+5. 결과를 Windows 알림창으로 띄운다.
+   (TEAMS_WEBHOOK_URL 환경변수가 있으면 Teams 웹훅으로 나에게 메시지를 보낸다.)
 
 사전 준비
 ---------
 pip install selenium webdriver-manager openpyxl
-set TEAMS_WEBHOOK_URL=<Workflows 웹훅 주소>         (필수, 코드에 직접 쓰지 마세요)
+set TEAMS_WEBHOOK_URL=<Workflows 웹훅 주소>         (선택. 없으면 Windows 알림창)
 set HELIUM_XLSX=C:\\경로\\01. 2026 Q4_헬륨 파일_여기입력.xlsx   (선택)
 
 실행
 ----
 py teams_alarm.py            # 실제 실행
-py teams_alarm.py --dry-run  # Teams로 보내지 않고 화면에만 출력
+py teams_alarm.py --dry-run  # 알림을 보내지 않고 콘솔에만 출력
 """
 
 import glob
@@ -27,6 +28,7 @@ import json
 import os
 import re
 import sys
+import ctypes
 import time
 import urllib.request
 from datetime import datetime
@@ -169,6 +171,11 @@ def send_to_teams(webhook_url, text):
         return resp.status
 
 
+def show_popup(text, title="GA/GC 압력 알림"):
+    # MB_ICONINFORMATION | MB_SETFOREGROUND | MB_TOPMOST
+    ctypes.windll.user32.MessageBoxW(0, text, title, 0x40 | 0x10000 | 0x40000)
+
+
 # ---------- 브라우저 ----------
 
 def read_chat_text(driver):
@@ -193,8 +200,6 @@ def read_chat_text(driver):
 def main():
     dry_run = "--dry-run" in sys.argv
     webhook = os.environ.get("TEAMS_WEBHOOK_URL")
-    if not webhook and not dry_run:
-        sys.exit("TEAMS_WEBHOOK_URL 환경변수가 필요합니다. (테스트는 --dry-run)")
 
     os.makedirs(PROFILE_DIR, exist_ok=True)
     driver = radar.setup_driver(PROFILE_DIR)
@@ -221,8 +226,12 @@ def main():
 
     message = build_message(results, missing)
     print(message)
-    if not dry_run:
+    if dry_run:
+        return
+    if webhook:
         print("Teams 전송 결과:", send_to_teams(webhook, message))
+    else:
+        show_popup(message)
 
 
 if __name__ == "__main__":
