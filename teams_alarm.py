@@ -21,6 +21,7 @@ set HELIUM_XLSX=C:\\경로\\01. 2026 Q4_헬륨 파일_여기입력.xlsx   (선�
 ----
 py teams_alarm.py            # 실제 실행
 py teams_alarm.py --dry-run  # 알림을 보내지 않고 콘솔에만 출력
+py teams_alarm.py --hospital 송도지안   # Teams를 읽지 않고 지정한 병원으로 테스트
 """
 
 import glob
@@ -204,12 +205,15 @@ def main():
     os.makedirs(PROFILE_DIR, exist_ok=True)
     driver = radar.setup_driver(PROFILE_DIR)
     try:
-        text = read_chat_text(driver)
-        if text is None:
-            sys.exit("Teams에서 MR Schedule 채팅을 찾지 못했습니다.")
-        hospitals = pm_hospitals(text)
-        if hospitals is None:
-            sys.exit("오늘 날짜의 MR Schedule 메시지가 아직 없습니다.")
+        if "--hospital" in sys.argv:
+            hospitals = [sys.argv[sys.argv.index("--hospital") + 1]]
+        else:
+            text = read_chat_text(driver)
+            if text is None:
+                sys.exit("Teams에서 MR Schedule 채팅을 찾지 못했습니다.")
+            hospitals = pm_hospitals(text)
+            if hospitals is None:
+                sys.exit("오늘 날짜의 MR Schedule 메시지가 아직 없습니다.")
         if not hospitals:
             print("오늘은 PM 병원이 없습니다.")
             return
