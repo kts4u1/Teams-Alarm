@@ -91,13 +91,17 @@ def fetch_plots(driver, device_id):
 
 def wait_for_login(driver, device_id, timeout):
     end_time = time.time() + timeout
+    last_error = None
     while time.time() < end_time:
         try:
             fetch_plots(driver, device_id)
-            return True
-        except Exception:
-            time.sleep(2)
-    return False
+            return
+        except Exception as e:
+            if str(e) != last_error:  # 같은 오류는 한 번만 보여줍니다
+                print(f"[재시도 중] {e}", flush=True)
+                last_error = str(e)
+            time.sleep(3)
+    raise RuntimeError(f"로그인 후 데이터를 가져오지 못했습니다. 마지막 오류: {last_error}")
 
 
 def get_gradient_pressure(device_ids, driver=None):
@@ -106,8 +110,7 @@ def get_gradient_pressure(device_ids, driver=None):
         driver = setup_driver()
     try:
         driver.get(PORTAL_URL)
-        if not wait_for_login(driver, device_ids[0], LOGIN_WAIT_TIMEOUT):
-            raise RuntimeError("로그인 후 데이터를 가져오지 못했습니다.")
+        wait_for_login(driver, device_ids[0], LOGIN_WAIT_TIMEOUT)
         return {d: parse_gradient_pressure(fetch_plots(driver, d)) for d in device_ids}
     finally:
         if own_driver:
