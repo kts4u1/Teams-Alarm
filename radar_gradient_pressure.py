@@ -37,7 +37,7 @@ FIND_BY_TEXT_JS = """
 const text = arguments[0];
 function own(el) {
     return Array.from(el.childNodes).filter(n => n.nodeType === 3)
-        .map(n => n.textContent).join('').replace(/\s+/g, ' ').trim();
+        .map(n => n.textContent).join('').replace(/\\s+/g, ' ').trim();
 }
 function visible(el) {  // 메뉴처럼 떠 있는(fixed) 요소도 보이는 것으로 취급
     return el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
