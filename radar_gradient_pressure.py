@@ -1,7 +1,11 @@
 """
 RADAR - GA/GC(Gradient Amplifier / Gradient Coil Circuit Filling Pressure) 최신 값 조회
 
-Edge 창이 뜨면 평소처럼 로그인만 하세요. 로그인이 끝나면 자동으로 값을 가져옵니다.
+사람이 하는 순서 그대로 화면을 조작합니다.
+  시스템 목록에서 SRN 검색 -> 번호 클릭 -> Dashboards -> System Cooling Dashboard
+  -> 화면이 불러오는 그래프 데이터(fetchGeneratedPlots 응답)를 읽음
+
+Edge 창이 뜨면 평소처럼 로그인만 하세요. 이후는 자동으로 진행됩니다.
 
 사용법
 ------
@@ -9,40 +13,50 @@ pip install selenium webdriver-manager
 py radar_gradient_pressure.py 24020 24062
 """
 
+import base64
 import json
 import sys
 import time
 from selenium import webdriver
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.edge.service import Service
 from webdriver_manager.microsoft import EdgeChromiumDriverManager
 
 PORTAL_URL = "https://portal.radar-digitalservices.hsp.philips.com/rmw/systemlist"
-PLOTS_API = "/api/v1/systemDetails/fetchGeneratedPlots"
+PLOTS_API = "fetchGeneratedPlots"
 LOGIN_WAIT_TIMEOUT = 180
+STEP_TIMEOUT = 40
 
 GA_PLOT = "LCC_GradAmpFillingPress"
 GC_PLOT = "LCC_GradCoilFillingPress"
 LOWER_BOUNDARY = 1.2  # 대시보드 그래프의 빨간 선 (bar)
 UPPER_BOUNDARY = 2.5
 
-FETCH_JS = """
-const done = arguments[arguments.length - 1];
-fetch(arguments[0], {
-    method: 'POST',
-    credentials: 'include',
-    headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
-    body: arguments[1],
-}).then(async r => done({status: r.status, body: await r.text()}))
-  .catch(e => done({status: 0, body: String(e)}));
+# 보이는 요소 중 '자기 자신의 글자'가 text와 같은 첫 요소를 돌려줍니다.
+FIND_BY_TEXT_JS = """
+const text = arguments[0];
+function own(el) {
+    return Array.from(el.childNodes).filter(n => n.nodeType === 3)
+        .map(n => n.textContent).join('').trim();
+}
+function search(root) {
+    for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot) {
+            const f = search(el.shadowRoot);
+            if (f) return f;
+        }
+        if (own(el) === text && el.offsetParent !== null) return el;
+    }
+    return null;
+}
+return search(document);
 """
 
-
-def build_payload(device_id):
-    return json.dumps({
-        "date": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
-        "deviceId": str(device_id),
-        "plotIds": [GA_PLOT, GC_PLOT],
-    })
+# 목록 맨 위 검색칸 중 첫 번째(System #)
+SEARCH_BOX_JS = """
+return Array.from(document.querySelectorAll('input'))
+    .filter(i => i.placeholder === 'Search' && i.offsetParent !== null)[0] || null;
+"""
 
 
 def latest_value(plots, plot_id):
@@ -79,39 +93,95 @@ def setup_driver(profile_dir=None):
     options = webdriver.EdgeOptions()
     if profile_dir:  # 로그인 상태를 유지하는 전용 프로필
         options.add_argument(f"--user-data-dir={profile_dir}")
-    return webdriver.Edge(service=Service(EdgeChromiumDriverManager().install()), options=options)
+    for cap in ("ms:loggingPrefs", "goog:loggingPrefs"):
+        options.set_capability(cap, {"performance": "ALL"})
+    driver = webdriver.Edge(service=Service(EdgeChromiumDriverManager().install()), options=options)
+    driver.execute_cdp_cmd("Network.enable", {})
+    return driver
 
 
-def fetch_plots(driver, device_id):
-    result = driver.execute_async_script(FETCH_JS, PLOTS_API, build_payload(device_id))
-    if result["status"] != 200:
-        raise RuntimeError(f"HTTP {result['status']}: {result['body'][:200]}")
-    return json.loads(result["body"])
-
-
-def wait_for_login(driver, device_id, timeout):
+def wait_for(fn, timeout, what):
     end_time = time.time() + timeout
-    last_error = None
     while time.time() < end_time:
         try:
-            fetch_plots(driver, device_id)
-            return
-        except Exception as e:
-            if str(e) != last_error:  # 같은 오류는 한 번만 보여줍니다
-                print(f"[재시도 중] {e}", flush=True)
-                last_error = str(e)
-            time.sleep(3)
-    raise RuntimeError(f"로그인 후 데이터를 가져오지 못했습니다. 마지막 오류: {last_error}")
+            result = fn()
+            if result:
+                return result
+        except Exception:
+            pass
+        time.sleep(1)
+    raise RuntimeError(f"시간 초과: {what}")
+
+
+def click(driver, element):
+    try:
+        element.click()
+    except Exception:
+        driver.execute_script("arguments[0].click()", element)
+
+
+def click_text(driver, text, timeout=STEP_TIMEOUT):
+    element = wait_for(lambda: driver.execute_script(FIND_BY_TEXT_JS, text), timeout,
+                       f"화면에서 '{text}'를 찾지 못했습니다")
+    click(driver, element)
+
+
+def open_cooling_dashboard(driver, srn, first):
+    driver.get(PORTAL_URL)
+    box_timeout = LOGIN_WAIT_TIMEOUT if first else STEP_TIMEOUT
+    box = wait_for(lambda: driver.execute_script(SEARCH_BOX_JS), box_timeout,
+                   "시스템 목록 화면(로그인 필요)")
+    box.clear()
+    box.send_keys(str(srn) + Keys.ENTER)
+    click_text(driver, str(srn))
+    click_text(driver, "Dashboards")
+    driver.get_log("performance")  # 이전 기록 비우기
+    click_text(driver, "System Cooling Dashboard")
+
+
+def capture_plots(driver, srn, timeout=60):
+    """화면이 보낸 fetchGeneratedPlots 요청 중 deviceId가 srn인 것의 응답을 읽습니다."""
+    requests, finished = {}, set()
+    end_time = time.time() + timeout
+    while time.time() < end_time:
+        for entry in driver.get_log("performance"):
+            message = json.loads(entry["message"])["message"]
+            method, params = message.get("method"), message.get("params", {})
+            if method == "Network.requestWillBeSent":
+                request = params.get("request", {})
+                if request.get("url", "").endswith(PLOTS_API):
+                    try:
+                        device = json.loads(request.get("postData", "{}")).get("deviceId")
+                    except ValueError:
+                        device = None
+                    requests[params["requestId"]] = str(device)
+            elif method == "Network.loadingFinished":
+                finished.add(params["requestId"])
+        for request_id, device in requests.items():
+            if device == str(srn) and request_id in finished:
+                body = driver.execute_cdp_cmd("Network.getResponseBody", {"requestId": request_id})
+                text = body["body"]
+                if body.get("base64Encoded"):
+                    text = base64.b64decode(text).decode("utf-8")
+                return json.loads(text)
+        time.sleep(1)
+    raise RuntimeError("그래프 데이터 응답을 받지 못했습니다.")
 
 
 def get_gradient_pressure(device_ids, driver=None):
     own_driver = driver is None
     if own_driver:
         driver = setup_driver()
+    results = {}
     try:
-        driver.get(PORTAL_URL)
-        wait_for_login(driver, device_ids[0], LOGIN_WAIT_TIMEOUT)
-        return {d: parse_gradient_pressure(fetch_plots(driver, d)) for d in device_ids}
+        for i, srn in enumerate(device_ids):
+            try:
+                open_cooling_dashboard(driver, srn, first=(i == 0))
+                results[srn] = parse_gradient_pressure(capture_plots(driver, srn))
+            except Exception as e:
+                print(f"[{srn}] 조회 실패: {e}", flush=True)
+                results[srn] = {"error": str(e)}
+        return results
     finally:
         if own_driver:
             driver.quit()

@@ -152,6 +152,9 @@ def build_message(results, missing, now=None):
     lines = [f"[GA/GC 압력] {now:%Y-%m-%d} PM 병원"]
     for hospital, systems in results.items():
         for srn, site, values in systems:
+            if "error" in values:
+                lines.append(f"{site} (SRN {srn}) - 조회 실패: {values['error']}")
+                continue
             date = (values["GA"] or values["GC"] or {}).get("date", "")
             lines.append(f"{site} (SRN {srn}) - GA {format_value(values['GA'])} / "
                          f"GC {format_value(values['GC'])}" + (f" [{date} 기준]" if date else ""))
