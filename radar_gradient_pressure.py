@@ -75,8 +75,11 @@ def parse_gradient_pressure(plots):
     return {"GA": latest_value(plots, GA_PLOT), "GC": latest_value(plots, GC_PLOT)}
 
 
-def setup_driver():
-    return webdriver.Edge(service=Service(EdgeChromiumDriverManager().install()))
+def setup_driver(profile_dir=None):
+    options = webdriver.EdgeOptions()
+    if profile_dir:  # 로그인 상태를 유지하는 전용 프로필
+        options.add_argument(f"--user-data-dir={profile_dir}")
+    return webdriver.Edge(service=Service(EdgeChromiumDriverManager().install()), options=options)
 
 
 def fetch_plots(driver, device_id):
@@ -97,15 +100,18 @@ def wait_for_login(driver, device_id, timeout):
     return False
 
 
-def get_gradient_pressure(device_ids):
-    driver = setup_driver()
+def get_gradient_pressure(device_ids, driver=None):
+    own_driver = driver is None
+    if own_driver:
+        driver = setup_driver()
     try:
         driver.get(PORTAL_URL)
         if not wait_for_login(driver, device_ids[0], LOGIN_WAIT_TIMEOUT):
             raise RuntimeError("로그인 후 데이터를 가져오지 못했습니다.")
         return {d: parse_gradient_pressure(fetch_plots(driver, d)) for d in device_ids}
     finally:
-        driver.quit()
+        if own_driver:
+            driver.quit()
 
 
 if __name__ == "__main__":
